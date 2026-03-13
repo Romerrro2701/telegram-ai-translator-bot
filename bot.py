@@ -13,9 +13,9 @@ from telegram.ext import (
 )
 
 import os
-from dotenv import load_dotenv
 import json
 import time
+from dotenv import load_dotenv
 from openai import OpenAI
 
 
@@ -23,14 +23,8 @@ from openai import OpenAI
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_KEY = os.getenv("OPENAI_KEY")
 
-import os
-from openai import OpenAI
-
-from openai import OpenAI
-
-client = OpenAI()
+client = OpenAI()  # автоматически берет OPENAI_API_KEY
 
 
 # ===== Конфиг =====
@@ -46,7 +40,7 @@ DAILY_LIMIT = 30
 last_request_time = {}
 
 
-# ===== Загрузка JSON =====
+# ===== JSON =====
 
 def load_json(file):
     if not os.path.exists(file):
@@ -159,7 +153,9 @@ def generate_translation(text, mode):
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
         max_tokens=MAX_TOKENS,
     )
 
@@ -185,7 +181,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=get_keyboard(mode))
 
 
-# ===== Переключение режима =====
+# ===== Кнопки =====
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -225,7 +221,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = time.time()
 
-    # cooldown
     if user_id in last_request_time:
 
         seconds_passed = now - last_request_time[user_id]
@@ -240,7 +235,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             return
 
-    # лимит
     if not check_daily_limit(user_id):
 
         await update.message.reply_text(
@@ -273,7 +267,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━
 """
 
-    except Exception:
+    except Exception as e:
+
+        print("OPENAI ERROR:", e)
 
         answer = (
             "Ошибка при обращении к AI 😕\n"
@@ -292,9 +288,7 @@ app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("history", history))
-
 app.add_handler(CallbackQueryHandler(button_handler))
-
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 print("Бот с OpenAI запущен 🚀")
