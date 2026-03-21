@@ -13,35 +13,33 @@ from telegram.ext import (
 )
 
 import os
+from dotenv import load_dotenv
 import json
 import time
-from dotenv import load_dotenv
 from openai import OpenAI
 
 
-# ===== Загрузка переменных =====
+# ===== ENV =====
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-client = OpenAI()  # автоматически берет OPENAI_API_KEY
+client = OpenAI()  # ключ берётся из Railway
 
 
-# ===== Конфиг =====
-MODES_FILE = "user_modes.json"
-LIMITS_FILE = "user_limits.json"
+# ===== CONFIG =====
 HISTORY_FILE = "user_history.json"
 
-COOLDOWN = 10
+COOLDOWN = 5
 MAX_LENGTH = 500
-MAX_TOKENS = 300
-DAILY_LIMIT = 30
+MAX_TOKENS = 400
+DAILY_LIMIT = 50
 
 last_request_time = {}
+user_history = {}
 
 
 # ===== JSON =====
-
 def load_json(file):
     if not os.path.exists(file):
         return {}
@@ -54,135 +52,76 @@ def save_json(file, data):
         json.dump(data, f)
 
 
-user_modes = load_json(MODES_FILE)
-user_limits = load_json(LIMITS_FILE)
 user_history = load_json(HISTORY_FILE)
 
 
-# ===== История =====
-
+# ===== HISTORY =====
 def add_to_history(user_id, text):
-
     if user_id not in user_history:
         user_history[user_id] = []
 
     user_history[user_id].insert(0, text)
-
     user_history[user_id] = user_history[user_id][:5]
 
     save_json(HISTORY_FILE, user_history)
 
 
-async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = str(update.effective_user.id)
-
-    if user_id not in user_history or not user_history[user_id]:
-        await update.message.reply_text("История пустая.")
-        return
-
-    text = "🕓 Последние переводы\n\n"
-
-    for i, phrase in enumerate(user_history[user_id], 1):
-        text += f"{i}️⃣ {phrase}\n"
-
-    await update.message.reply_text(text)
-
-
-# ===== Лимиты =====
-
-def check_daily_limit(user_id):
-
-    today = time.strftime("%Y-%m-%d")
-
-    if user_id not in user_limits:
-        user_limits[user_id] = {"date": today, "count": 0}
-
-    if user_limits[user_id]["date"] != today:
-        user_limits[user_id] = {"date": today, "count": 0}
-
-    if user_limits[user_id]["count"] >= DAILY_LIMIT:
-        return False
-
-    user_limits[user_id]["count"] += 1
-
-    save_json(LIMITS_FILE, user_limits)
-
-    return True
-
-
-# ===== Кнопки =====
-
-def get_keyboard(mode):
-
-    if mode == "formal":
-        switch = InlineKeyboardButton("😎 Разговорно", callback_data="casual")
-    else:
-        switch = InlineKeyboardButton("🎩 Формально", callback_data="formal")
-
-    regenerate = InlineKeyboardButton("🔁 Перевести заново", callback_data="regen")
-    copy = InlineKeyboardButton("📋 Скопировать", callback_data="copy")
-
+# ===== KEYBOARD =====
+def get_keyboard():
     return InlineKeyboardMarkup([
-        [regenerate, copy],
-        [switch]
+        [
+            InlineKeyboardButton("🔁 Перевести заново", callback_data="regen"),
+            InlineKeyboardButton("📋 Скопировать", callback_data="copy"),
+        ]
     ])
 
 
-# ===== OpenAI =====
-
-def generate_translation(text, mode):
-
-    style_instruction = (
-        "Сделай перевод формальным."
-        if mode == "formal"
-        else "Сделай перевод разговорным, естественным для Аргентины, используй vos."
-    )
+# ===== OPENAI =====
+def generate_translation(text):
 
     prompt = f"""
-Пользователь написал текст на русском.
+Ты профессиональный переводчик русского на аргентинский испанский.
 
-1) Повтори русский текст.
-2) Переведи на аргентинский испанский.
-3) Напиши произношение русскими буквами (с аргентинским акцентом).
+Важно:
+- Используй аргентинский диалект Rioplatense.
+- Используй местоимение VOS вместо TÚ.
+- Используй аргентинские формы глаголов: querés, podés, tenés, decís.
+- Используй лексику Аргентины (che, bueno, dale если уместно).
 
-{style_instruction}
+Структура ответа:
 
-Текст: {text}
+🇷🇺 Русский:
+{text}
+
+🇦🇷 Аргентинский:
+...
+
+🔊 Произношение:
+...
 """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
+        messages=[{"role": "user", "content": prompt}],
         max_tokens=MAX_TOKENS,
     )
 
     return response.choices[0].message.content
 
 
-# ===== /start =====
-
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = str(update.effective_user.id)
-    mode = user_modes.get(user_id, "formal")
-
-    mode_text = "🎩 Формальный" if mode == "formal" else "😎 Разговорный"
 
     text = (
         "Привет 👋\n\n"
         "Я перевожу русский текст на аргентинский испанский 🇦🇷\n\n"
-        f"Текущий режим: {mode_text}\n\n"
         "Просто отправь фразу."
     )
 
-    await update.message.reply_text(text, reply_markup=get_keyboard(mode))
+    await update.message.reply_text(text)
 
 
-# ===== Кнопки =====
-
+# ===== BUTTONS =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
@@ -191,23 +130,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(query.from_user.id)
     action = query.data
 
-    if action in ["formal", "casual"]:
+    if action == "regen":
 
-        user_modes[user_id] = action
-        save_json(MODES_FILE, user_modes)
+        if user_id not in user_history or not user_history[user_id]:
+            await query.answer("Нет текста для повторного перевода")
+            return
 
-        mode_text = "🎩 Формальный" if action == "formal" else "😎 Разговорный"
+        text = user_history[user_id][0]
+
+        result = generate_translation(text)
 
         await query.edit_message_text(
-            "Режим переключён ✅\n\n"
-            f"Теперь: {mode_text}\n\n"
-            "Отправь новый текст.",
-            reply_markup=get_keyboard(action),
+            result,
+            reply_markup=get_keyboard()
+        )
+
+    elif action == "copy":
+
+        await query.answer(
+            "Текст можно скопировать долгим нажатием 👆",
+            show_alert=True
         )
 
 
-# ===== Сообщения =====
-
+# ===== MESSAGE =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
@@ -221,76 +167,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = time.time()
 
+    # cooldown
     if user_id in last_request_time:
-
-        seconds_passed = now - last_request_time[user_id]
-
-        if seconds_passed < COOLDOWN:
-
-            seconds_left = int(COOLDOWN - seconds_passed)
-
-            await update.message.reply_text(
-                f"⏳ Подожди ещё {seconds_left} сек."
-            )
-
+        if now - last_request_time[user_id] < COOLDOWN:
+            await update.message.reply_text("⏳ Подожди пару секунд")
             return
-
-    if not check_daily_limit(user_id):
-
-        await update.message.reply_text(
-            "🚫 Ты достиг дневного лимита (30 запросов).\n"
-            "Попробуй снова завтра 😉"
-        )
-
-        return
 
     last_request_time[user_id] = now
 
-    mode = user_modes.get(user_id, "formal")
-    mode_label = "🎩 Формально" if mode == "formal" else "😎 Разговорно"
-
     await update.message.chat.send_action("typing")
 
-    temp_message = await update.message.reply_text("Перевожу...")
+    temp = await update.message.reply_text("Перевожу...")
 
     try:
-
-        result = generate_translation(user_text, mode)
-
-        answer = f"""
-{mode_label}
-
-━━━━━━━━━━━━━━
-
-{result}
-
-━━━━━━━━━━━━━━
-"""
+        result = generate_translation(user_text)
 
     except Exception as e:
-
         print("OPENAI ERROR:", e)
+        result = "Ошибка при обращении к AI 😕"
 
-        answer = (
-            "Ошибка при обращении к AI 😕\n"
-            "Проверь API ключ или лимиты."
-        )
-
-    await temp_message.edit_text(
-        answer,
-        reply_markup=get_keyboard(mode),
+    await temp.edit_text(
+        result,
+        reply_markup=get_keyboard()
     )
 
 
-# ===== Запуск =====
-
+# ===== RUN =====
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("history", history))
 app.add_handler(CallbackQueryHandler(button_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-print("Бот с OpenAI запущен 🚀")
+print("Бот запущен 🚀")
 
 app.run_polling()
