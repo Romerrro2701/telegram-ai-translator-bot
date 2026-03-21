@@ -1,13 +1,8 @@
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
-    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -24,7 +19,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-client = OpenAI()  # ключ берётся из Railway
+client = OpenAI()
 
 
 # ===== CONFIG =====
@@ -33,7 +28,6 @@ HISTORY_FILE = "user_history.json"
 COOLDOWN = 5
 MAX_LENGTH = 500
 MAX_TOKENS = 400
-DAILY_LIMIT = 50
 
 last_request_time = {}
 user_history = {}
@@ -66,16 +60,6 @@ def add_to_history(user_id, text):
     save_json(HISTORY_FILE, user_history)
 
 
-# ===== KEYBOARD =====
-def get_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔁 Перевести заново", callback_data="regen"),
-            InlineKeyboardButton("📋 Скопировать", callback_data="copy"),
-        ]
-    ])
-
-
 # ===== OPENAI =====
 def generate_translation(text):
 
@@ -91,7 +75,6 @@ def generate_translation(text):
 - Только РУССКИМИ буквами
 - Без IPA, без символов типа [], ', :
 - Пиши как слышится русскому человеку
-- Простая фонетика
 
 Примеры:
 hola → ола  
@@ -115,52 +98,19 @@ traducción → традусион
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=400,
+        max_tokens=MAX_TOKENS,
     )
 
     return response.choices[0].message.content
+
+
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    text = (
+    await update.message.reply_text(
         "Привет 👋\n\n"
         "Я перевожу русский текст на аргентинский испанский 🇦🇷\n\n"
         "Просто отправь фразу."
     )
-
-    await update.message.reply_text(text)
-
-
-# ===== BUTTONS =====
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await query.answer()
-
-    user_id = str(query.from_user.id)
-    action = query.data
-
-    if action == "regen":
-
-        if user_id not in user_history or not user_history[user_id]:
-            await query.answer("Нет текста для повторного перевода")
-            return
-
-        text = user_history[user_id][0]
-
-        result = generate_translation(text)
-
-        await query.edit_message_text(
-            result,
-            reply_markup=get_keyboard()
-        )
-
-    elif action == "copy":
-
-        await query.answer(
-            "Текст можно скопировать долгим нажатием 👆",
-            show_alert=True
-        )
 
 
 # ===== MESSAGE =====
@@ -173,11 +123,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Слишком длинный текст 🙃")
         return
 
-    add_to_history(user_id, user_text)
-
     now = time.time()
 
-    # cooldown
     if user_id in last_request_time:
         if now - last_request_time[user_id] < COOLDOWN:
             await update.message.reply_text("⏳ Подожди пару секунд")
@@ -191,22 +138,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         result = generate_translation(user_text)
+        add_to_history(user_id, user_text)
 
     except Exception as e:
         print("OPENAI ERROR:", e)
         result = "Ошибка при обращении к AI 😕"
 
-    await temp.edit_text(
-        result,
-        reply_markup=get_keyboard()
-    )
+    await temp.edit_text(result)
 
 
 # ===== RUN =====
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 print("Бот запущен 🚀")
