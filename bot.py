@@ -83,12 +83,24 @@ def generate_translation(text):
 Ты профессиональный переводчик русского на аргентинский испанский.
 
 Важно:
-- Используй аргентинский диалект Rioplatense.
-- Используй местоимение VOS вместо TÚ.
-- Используй аргентинские формы глаголов: querés, podés, tenés, decís.
-- Используй лексику Аргентины (che, bueno, dale если уместно).
+- Используй аргентинский диалект (Rioplatense)
+- Используй vos (querés, podés, tenés)
+- Речь должна звучать как в Буэнос-Айресе
 
-Структура ответа:
+Также сделай ПРОИЗНОШЕНИЕ:
+- Только РУССКИМИ буквами
+- Без IPA, без символов типа [], ', :
+- Пиши как слышится русскому человеку
+- Простая фонетика
+
+Примеры:
+hola → ола  
+yo → ё  
+llamo → ямо  
+calle → кайе  
+traducción → традусион  
+
+Формат строго:
 
 🇷🇺 Русский:
 {text}
@@ -103,12 +115,10 @@ def generate_translation(text):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=MAX_TOKENS,
+        max_tokens=400,
     )
 
     return response.choices[0].message.content
-
-
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
