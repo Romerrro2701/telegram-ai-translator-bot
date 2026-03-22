@@ -223,9 +223,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_voice(
-                voice=open(audio_path, "rb"),
-                caption=f"📝 {text}\n\n🌍 {translated_full}"
-            )
+    voice=open(audio_path, "rb"),
+    caption=translated
+)
 
     except Exception as e:
         print("VOICE ERROR:", e)
