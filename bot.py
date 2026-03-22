@@ -61,39 +61,34 @@ def add_to_history(user_id, text):
     save_json(HISTORY_FILE, user_history)
 
 
-# ===== OPENAI (TEXT) =====
-def generate_translation(text):
+# ===== УМНЫЙ ПЕРЕВОД =====
+def smart_translate(text):
 
     prompt = f"""
-Ты профессиональный переводчик русского на аргентинский испанский.
+Ты профессиональный переводчик.
 
-Важно:
-- Используй аргентинский диалект (Rioplatense)
-- Используй vos (querés, podés, tenés)
-- Речь должна звучать как в Буэнос-Айресе
+Определи язык текста и переведи:
 
-Также сделай ПРОИЗНОШЕНИЕ:
-- Только РУССКИМИ буквами
-- Без IPA, без символов типа [], ', :
-- Пиши как слышится русскому человеку
+Если русский → переведи на аргентинский испанский (Rioplatense, vos, стиль Буэнос-Айрес)
+Если испанский → переведи на русский
 
-Примеры:
-hola → ола  
-yo → ё  
-llamo → ямо  
-calle → кайе  
-traducción → традусион  
+ВАЖНО:
+- Если перевод на испанский → добавь произношение русскими буквами
+- Если перевод на русский → без произношения
 
-Формат строго:
+Формат:
 
 🇷🇺 Русский:
-{text}
+...
 
 🇦🇷 Аргентинский:
 ...
 
 🔊 Произношение:
-...
+... (только если испанский)
+
+Текст:
+{text}
 """
 
     response = client.chat.completions.create(
@@ -105,8 +100,7 @@ traducción → традусион
     return response.choices[0].message.content
 
 
-# ===== OPENAI (VOICE) =====
-
+# ===== STT =====
 def speech_to_text(file_path):
     with open(file_path, "rb") as audio:
         transcript = client.audio.transcriptions.create(
@@ -116,35 +110,7 @@ def speech_to_text(file_path):
     return transcript.text
 
 
-def detect_language(text):
-    prompt = f"Определи язык: ru или es\n\n{text}"
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=5,
-    )
-
-    return response.choices[0].message.content.strip()
-
-
-def translate_text(text, direction):
-    if direction == "ru_to_es":
-        instruction = "Переведи на аргентинский испанский (vos, Rioplatense)"
-    else:
-        instruction = "Переведи на русский"
-
-    prompt = f"{text}\n\n{instruction}"
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=200,
-    )
-
-    return response.choices[0].message.content
-
-
+# ===== TTS =====
 def text_to_speech(text):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
 
@@ -191,7 +157,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp = await update.message.reply_text("Перевожу...")
 
     try:
-        result = generate_translation(user_text)
+        result = smart_translate(user_text)
         add_to_history(user_id, user_text)
 
     except Exception as e:
@@ -215,12 +181,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = speech_to_text(file_path)
 
-        lang = detect_language(text)
-
-        if "ru" in lang:
-            translated = translate_text(text, "ru_to_es")
-        else:
-            translated = translate_text(text, "es_to_ru")
+        translated = smart_translate(text)
 
         audio_path = text_to_speech(translated)
 
