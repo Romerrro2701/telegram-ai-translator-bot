@@ -11,6 +11,7 @@ import os
 from dotenv import load_dotenv
 import json
 import time
+import tempfile
 from openai import OpenAI
 
 
@@ -60,7 +61,7 @@ def add_to_history(user_id, text):
     save_json(HISTORY_FILE, user_history)
 
 
-# ===== OPENAI =====
+# ===== OPENAI (TEXT) =====
 def generate_translation(text):
 
     prompt = f"""
@@ -104,16 +105,69 @@ traducción → традусион
     return response.choices[0].message.content
 
 
+# ===== OPENAI (VOICE) =====
+
+def speech_to_text(file_path):
+    with open(file_path, "rb") as audio:
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=audio
+        )
+    return transcript.text
+
+
+def detect_language(text):
+    prompt = f"Определи язык: ru или es\n\n{text}"
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=5,
+    )
+
+    return response.choices[0].message.content.strip()
+
+
+def translate_text(text, direction):
+    if direction == "ru_to_es":
+        instruction = "Переведи на аргентинский испанский (vos, Rioplatense)"
+    else:
+        instruction = "Переведи на русский"
+
+    prompt = f"{text}\n\n{instruction}"
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=200,
+    )
+
+    return response.choices[0].message.content
+
+
+def text_to_speech(text):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+
+        audio = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",
+            input=text
+        )
+
+        tmp.write(audio.content)
+        return tmp.name
+
+
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет 👋\n\n"
-        "Я перевожу русский текст на аргентинский испанский 🇦🇷\n\n"
-        "Просто отправь фразу."
+        "Я перевожу текст и голос RU ↔ ES 🇦🇷\n\n"
+        "Напиши или отправь голосовое 🎤"
     )
 
 
-# ===== MESSAGE =====
+# ===== TEXT =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
@@ -147,11 +201,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await temp.edit_text(result)
 
 
+# ===== VOICE =====
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.chat.send_action("typing")
+
+    voice = await update.message.voice.get_file()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp:
+        await voice.download_to_drive(tmp.name)
+        file_path = tmp.name
+
+    try:
+        text = speech_to_text(file_path)
+
+        lang = detect_language(text)
+
+        if "ru" in lang:
+            translated = translate_text(text, "ru_to_es")
+        else:
+            translated = translate_text(text, "es_to_ru")
+
+        audio_path = text_to_speech(translated)
+
+        await update.message.reply_voice(
+            voice=open(audio_path, "rb"),
+            caption=f"📝 {text}\n\n🌍 {translated}"
+        )
+
+    except Exception as e:
+        print("VOICE ERROR:", e)
+        await update.message.reply_text("Ошибка обработки голоса 😕")
+
+
 # ===== RUN =====
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
 print("Бот запущен 🚀")
 
