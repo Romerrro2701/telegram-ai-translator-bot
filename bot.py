@@ -61,7 +61,7 @@ def add_to_history(user_id, text):
     save_json(HISTORY_FILE, user_history)
 
 
-# ===== SMART TRANSLATE =====
+# ===== SMART TRANSLATE (для текста) =====
 def smart_translate(text):
     prompt = f"""
 Ты профессиональный переводчик.
@@ -99,13 +99,28 @@ def smart_translate(text):
     return response.choices[0].message.content
 
 
-# ===== EXTRACT CLEAN TEXT (ДЛЯ ОЗВУЧКИ) =====
-def extract_translation(text):
-    if "🇦🇷" in text:
-        return text.split("🇦🇷")[1].split("🔊")[0].strip()
-    elif "🇷🇺" in text:
-        return text.split("🇷🇺")[1].strip()
-    return text
+# ===== СТРОГИЙ ПЕРЕВОД (для голоса) =====
+def translate_strict(text, direction):
+
+    if direction == "ru_to_es":
+        instruction = "Переведи на аргентинский испанский (Rioplatense, vos, Буэнос-Айрес)"
+    else:
+        instruction = "Переведи на русский"
+
+    prompt = f"""
+{instruction}
+
+Текст:
+{text}
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=200,
+    )
+
+    return response.choices[0].message.content
 
 
 # ===== STT =====
@@ -216,20 +231,25 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = speech_to_text(file_path)
 
-        # если режим диалога → автоопределение
+        # определяем язык
         if update.effective_user.id in dialog_mode:
             lang = detect_language(text)
         else:
-            lang = "ru" if any(c in text for c in "абвгд") else "es"
+            lang = "ru" if any(c in text for c in "абвгдеёжзийклмнопрстуфхцчшщ") else "es"
 
-        translated_full = smart_translate(text)
-        clean_text = extract_translation(translated_full)
+        # ЖЁСТКОЕ направление
+        if "ru" in lang:
+            direction = "ru_to_es"
+        else:
+            direction = "es_to_ru"
 
-        audio_path = text_to_speech(clean_text)
+        translated = translate_strict(text, direction)
+
+        audio_path = text_to_speech(translated)
 
         await update.message.reply_voice(
             voice=open(audio_path, "rb"),
-            caption=translated_full
+            caption=f"📝 {text}\n\n🌍 {translated}"
         )
 
     except Exception as e:
