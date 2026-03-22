@@ -61,19 +61,17 @@ def add_to_history(user_id, text):
     save_json(HISTORY_FILE, user_history)
 
 
-# ===== SMART TRANSLATE (для текста) =====
+# ===== TEXT TRANSLATE =====
 def smart_translate(text):
     prompt = f"""
 Ты профессиональный переводчик.
 
-Если русский → переведи на аргентинский испанский (Rioplatense, vos, Буэнос-Айрес)
-Если испанский → переведи на русский
+Если русский → аргентинский испанский (vos, Буэнос-Айрес)
+Если испанский → русский
 
-ВАЖНО ДЛЯ ПРОИЗНОШЕНИЯ:
+ВАЖНО:
 - ll и y → всегда "ш"
-- ejemplo: calle → каше, yo → шо
-- только русские буквы
-- простое звучание
+- только русские буквы в произношении
 
 Формат:
 
@@ -99,20 +97,15 @@ def smart_translate(text):
     return response.choices[0].message.content
 
 
-# ===== СТРОГИЙ ПЕРЕВОД (для голоса) =====
+# ===== VOICE TRANSLATE (СТРОГО) =====
 def translate_strict(text, direction):
 
     if direction == "ru_to_es":
-        instruction = "Переведи на аргентинский испанский (Rioplatense, vos, Буэнос-Айрес)"
+        instruction = "Переведи на аргентинский испанский (Rioplatense, vos)"
     else:
         instruction = "Переведи на русский"
 
-    prompt = f"""
-{instruction}
-
-Текст:
-{text}
-"""
+    prompt = f"{instruction}\n\n{text}"
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -120,7 +113,7 @@ def translate_strict(text, direction):
         max_tokens=200,
     )
 
-    return response.choices[0].message.content
+    return response.choices[0].message.content.strip()
 
 
 # ===== STT =====
@@ -133,19 +126,6 @@ def speech_to_text(file_path):
     return transcript.text
 
 
-# ===== LANGUAGE DETECT =====
-def detect_language(text):
-    prompt = f"Определи язык: ru или es\n\n{text}"
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=5,
-    )
-
-    return response.choices[0].message.content.lower()
-
-
 # ===== TTS =====
 def text_to_speech(text):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
@@ -154,10 +134,8 @@ def text_to_speech(text):
             voice="alloy",
             input=text
         )
-
         tmp.write(audio.content)
         tmp.flush()
-
         return tmp.name
 
 
@@ -169,7 +147,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Команды:\n"
         "/dialog — режим 2 человек\n"
         "/stop — выйти из режима\n\n"
-        "Просто напиши или отправь голос 🎤"
+        "Пиши или отправляй голос 🎤"
     )
 
 
@@ -231,14 +209,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = speech_to_text(file_path)
 
-        # определяем язык
-        if update.effective_user.id in dialog_mode:
-            lang = detect_language(text)
-        else:
-            lang = "ru" if any(c in text for c in "абвгдеёжзийклмнопрстуфхцчшщ") else "es"
+        # 🔥 ПРОСТОЕ и НАДЁЖНОЕ определение
+        is_russian = any(c in text.lower() for c in "абвгдеёжзийклмнопрстуфхцчшщ")
 
-        # ЖЁСТКОЕ направление
-        if "ru" in lang:
+        if is_russian:
             direction = "ru_to_es"
         else:
             direction = "es_to_ru"
