@@ -17,9 +17,7 @@ from openai import OpenAI
 
 # ===== ENV =====
 load_dotenv()
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
 client = OpenAI()
 
 
@@ -32,6 +30,7 @@ MAX_TOKENS = 400
 
 last_request_time = {}
 user_history = {}
+dialog_mode = set()  # пользователи в режиме диалога
 
 
 # ===== JSON =====
@@ -67,14 +66,15 @@ def smart_translate(text):
     prompt = f"""
 Ты профессиональный переводчик.
 
-Определи язык текста и переведи:
-
-Если русский → переведи на аргентинский испанский (Rioplatense, vos, стиль Буэнос-Айрес)
+Если русский → переведи на аргентинский испанский (Rioplatense, vos, Буэнос-Айрес)
 Если испанский → переведи на русский
 
-ВАЖНО:
-- Если перевод на испанский → добавь произношение русскими буквами
-- Если перевод на русский → без произношения
+ВАЖНО ДЛЯ ПРОИЗНОШЕНИЯ:
+- ll и y → всегда "ш"
+- ejemplo: calle → каше, yo → шо
+
+- только русские буквы
+- простое звучание
 
 Формат:
 
@@ -98,6 +98,17 @@ def smart_translate(text):
     )
 
     return response.choices[0].message.content
+
+
+# ===== ВЫТАЩИТЬ ЧИСТЫЙ ПЕРЕВОД (ДЛЯ ГОЛОСА) =====
+def extract_translation(text):
+
+    if "🇦🇷" in text:
+        return text.split("🇦🇷")[1].split("🔊")[0].strip()
+    elif "🇷🇺" in text:
+        return text.split("🇷🇺")[1].strip()
+
+    return text
 
 
 # ===== STT =====
@@ -124,13 +135,28 @@ def text_to_speech(text):
         return tmp.name
 
 
-# ===== START =====
+# ===== COMMANDS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет 👋\n\n"
         "Я перевожу текст и голос RU ↔ ES 🇦🇷\n\n"
-        "Напиши или отправь голосовое 🎤"
+        "/dialog — режим диалога 🎧\n"
+        "/stop — выйти из режима\n"
     )
+
+
+async def dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    dialog_mode.add(user_id)
+
+    await update.message.reply_text("🎧 Режим диалога включен")
+
+
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    dialog_mode.discard(user_id)
+
+    await update.message.reply_text("❌ Режим диалога выключен")
 
 
 # ===== TEXT =====
@@ -170,6 +196,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== VOICE =====
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    user_id = str(update.effective_user.id)
+
     await update.message.chat.send_action("typing")
 
     voice = await update.message.voice.get_file()
@@ -181,14 +209,23 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = speech_to_text(file_path)
 
-        translated = smart_translate(text)
+        translated_full = smart_translate(text)
 
-        audio_path = text_to_speech(translated)
+        # 👉 только перевод для озвучки
+        clean_translation = extract_translation(translated_full)
 
-        await update.message.reply_voice(
-            voice=open(audio_path, "rb"),
-            caption=f"📝 {text}\n\n🌍 {translated}"
-        )
+        audio_path = text_to_speech(clean_translation)
+
+        # 👉 если режим диалога — только голос
+        if user_id in dialog_mode:
+            await update.message.reply_voice(
+                voice=open(audio_path, "rb")
+            )
+        else:
+            await update.message.reply_voice(
+                voice=open(audio_path, "rb"),
+                caption=f"📝 {text}\n\n🌍 {translated_full}"
+            )
 
     except Exception as e:
         print("VOICE ERROR:", e)
@@ -199,6 +236,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("dialog", dialog))
+app.add_handler(CommandHandler("stop", stop))
+
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
