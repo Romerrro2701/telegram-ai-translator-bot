@@ -109,7 +109,7 @@ def smart_translate(text):
     return response.choices[0].message.content
 
 
-# ===== ВЫТАЩИТЬ ЧИСТЫЙ ПЕРЕВОД =====
+# ===== EXTRACT CLEAN TEXT =====
 def extract_translation(text):
     if "🇦🇷" in text:
         return text.split("🇦🇷")[1].split("🔊")[0].strip()
@@ -174,7 +174,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ===== ОГРАНИЧЕНИЯ =====
+    # ===== LIMIT =====
     if len(text) > MAX_LENGTH:
         await update.message.reply_text("Слишком длинный текст 🙃")
         return
@@ -192,14 +192,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp = await update.message.reply_text("Перевожу...")
 
     try:
-        result = await asyncio.to_thread(smart_translate, text)
+        result = smart_translate(text)
+
+        if not result or len(result.strip()) < 5:
+            raise Exception("Empty response")
+
         add_to_history(user_id, text)
 
         await temp.edit_text(result, reply_markup=get_keyboard())
 
     except Exception as e:
         print("OPENAI ERROR:", e)
-        await temp.edit_text("❌ Ошибка перевода", reply_markup=get_keyboard())
+
+        await temp.edit_text(
+            "❌ Ошибка перевода\nПопробуй ещё раз",
+            reply_markup=get_keyboard()
+        )
 
 
 # ===== VOICE =====
@@ -214,11 +222,22 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = tmp.name
 
     try:
+        # распознавание
         text = await asyncio.to_thread(speech_to_text, file_path)
 
+        if not text or len(text.strip()) < 2:
+            raise Exception("STT empty")
+
+        # перевод
         translated_full = await asyncio.to_thread(smart_translate, text)
+
+        if not translated_full or len(translated_full.strip()) < 5:
+            raise Exception("Translation empty")
+
+        # чистый текст для озвучки
         clean_text = extract_translation(translated_full)
 
+        # озвучка
         audio_path = await asyncio.to_thread(text_to_speech, clean_text)
 
         await update.message.reply_voice(
@@ -229,7 +248,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print("VOICE ERROR:", e)
-        await update.message.reply_text("Ошибка обработки голоса 😕")
+
+        await update.message.reply_text(
+            "❌ Ошибка обработки голоса",
+            reply_markup=get_keyboard()
+        )
 
 
 # ===== RUN =====
