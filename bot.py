@@ -199,10 +199,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print("OPENAI ERROR:", e)
 
-        await temp.edit_text(
-            "❌ Ошибка перевода\nПопробуй ещё раз",
-            reply_markup=get_keyboard()
-        )
+       await temp.edit_text("❌ Ошибка перевода\nПопробуй ещё раз")
 
 # ===== VOICE =====
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
