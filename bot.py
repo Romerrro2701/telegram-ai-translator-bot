@@ -152,29 +152,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ===== TEXT =====
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
     text = update.message.text.strip()
 
-    # ===== КНОПКИ =====
+    # кнопки
     if text == "🟢 Начать диалог":
         dialog_mode.add(update.effective_user.id)
-        await update.message.reply_text(
-            "🟢 Режим диалога включен",
-            reply_markup=get_keyboard()
-        )
+        await update.message.reply_text("🟢 Режим диалога включен", reply_markup=get_keyboard())
         return
 
     if text == "🔴 Остановить диалог":
         dialog_mode.discard(update.effective_user.id)
-        await update.message.reply_text(
-            "🔴 Режим диалога выключен",
-            reply_markup=get_keyboard()
-        )
+        await update.message.reply_text("🔴 Режим диалога выключен", reply_markup=get_keyboard())
         return
 
-    # ===== LIMIT =====
     if len(text) > MAX_LENGTH:
         await update.message.reply_text("Слишком длинный текст 🙃")
         return
@@ -192,7 +186,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp = await update.message.reply_text("Перевожу...")
 
     try:
-        result = smart_translate(text)
+        # 🔥 ВАЖНО — не блокируем поток
+        result = await asyncio.to_thread(smart_translate, text)
 
         if not result or len(result.strip()) < 5:
             raise Exception("Empty response")
@@ -208,7 +203,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Ошибка перевода\nПопробуй ещё раз",
             reply_markup=get_keyboard()
         )
-
 
 # ===== VOICE =====
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
