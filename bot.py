@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -32,6 +32,17 @@ MAX_TOKENS = 400
 last_request_time = {}
 user_history = {}
 dialog_mode = set()
+
+
+# ===== KEYBOARD =====
+def get_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["🟢 Начать диалог"],
+            ["🔴 Остановить диалог"]
+        ],
+        resize_keyboard=True
+    )
 
 
 # ===== JSON =====
@@ -134,31 +145,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет 👋\n\n"
         "Я перевожу текст и голос RU ↔ ES 🇦🇷\n\n"
-        "Команды:\n"
-        "/dialog — режим 2 человек\n"
-        "/stop — выйти из режима\n\n"
-        "Пиши или отправляй голос 🎤"
+        "Нажми кнопку или отправь сообщение 🎤",
+        reply_markup=get_keyboard()
     )
-
-
-# ===== DIALOG MODE =====
-async def dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    dialog_mode.add(update.effective_user.id)
-    await update.message.reply_text("🟢 Режим диалога включен")
-
-
-async def stop_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    dialog_mode.discard(update.effective_user.id)
-    await update.message.reply_text("🔴 Режим диалога выключен")
 
 
 # ===== TEXT =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
-    user_text = update.message.text.strip()
+    text = update.message.text.strip()
 
-    if len(user_text) > MAX_LENGTH:
+    # ===== КНОПКИ =====
+    if text == "🟢 Начать диалог":
+        dialog_mode.add(update.effective_user.id)
+        await update.message.reply_text(
+            "🟢 Режим диалога включен",
+            reply_markup=get_keyboard()
+        )
+        return
+
+    if text == "🔴 Остановить диалог":
+        dialog_mode.discard(update.effective_user.id)
+        await update.message.reply_text(
+            "🔴 Режим диалога выключен",
+            reply_markup=get_keyboard()
+        )
+        return
+
+    # ===== ОГРАНИЧЕНИЯ =====
+    if len(text) > MAX_LENGTH:
         await update.message.reply_text("Слишком длинный текст 🙃")
         return
 
@@ -175,14 +191,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp = await update.message.reply_text("Перевожу...")
 
     try:
-        result = smart_translate(user_text)
-        add_to_history(user_id, user_text)
-
+        result = smart_translate(text)
+        add_to_history(user_id, text)
     except Exception as e:
         print("OPENAI ERROR:", e)
         result = "Ошибка при обращении к AI 😕"
 
-    await temp.edit_text(result)
+    await temp.edit_text(result, reply_markup=get_keyboard())
 
 
 # ===== VOICE =====
@@ -199,17 +214,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = speech_to_text(file_path)
 
-        # 👉 получаем КРАСИВЫЙ блок
         translated_full = smart_translate(text)
-
-        # 👉 только перевод для озвучки
         clean_text = extract_translation(translated_full)
 
         audio_path = text_to_speech(clean_text)
 
         await update.message.reply_voice(
             voice=open(audio_path, "rb"),
-            caption=translated_full
+            caption=translated_full,
+            reply_markup=get_keyboard()
         )
 
     except Exception as e:
@@ -221,8 +234,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("dialog", dialog))
-app.add_handler(CommandHandler("stop", stop_dialog))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(MessageHandler(filters.VOICE, handle_voice))
