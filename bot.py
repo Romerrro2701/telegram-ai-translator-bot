@@ -61,7 +61,7 @@ def add_to_history(user_id, text):
     save_json(HISTORY_FILE, user_history)
 
 
-# ===== TEXT TRANSLATE =====
+# ===== TRANSLATE =====
 def smart_translate(text):
     prompt = f"""
 Ты профессиональный переводчик.
@@ -97,23 +97,13 @@ def smart_translate(text):
     return response.choices[0].message.content
 
 
-# ===== VOICE TRANSLATE (СТРОГО) =====
-def translate_strict(text, direction):
-
-    if direction == "ru_to_es":
-        instruction = "Переведи на аргентинский испанский (Rioplatense, vos)"
-    else:
-        instruction = "Переведи на русский"
-
-    prompt = f"{instruction}\n\n{text}"
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=200,
-    )
-
-    return response.choices[0].message.content.strip()
+# ===== ВЫТАЩИТЬ ЧИСТЫЙ ПЕРЕВОД =====
+def extract_translation(text):
+    if "🇦🇷" in text:
+        return text.split("🇦🇷")[1].split("🔊")[0].strip()
+    elif "🇷🇺" in text:
+        return text.split("🇷🇺")[1].strip()
+    return text
 
 
 # ===== STT =====
@@ -209,21 +199,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = speech_to_text(file_path)
 
-        # 🔥 ПРОСТОЕ и НАДЁЖНОЕ определение
-        is_russian = any(c in text.lower() for c in "абвгдеёжзийклмнопрстуфхцчшщ")
+        # 👉 получаем КРАСИВЫЙ блок
+        translated_full = smart_translate(text)
 
-        if is_russian:
-            direction = "ru_to_es"
-        else:
-            direction = "es_to_ru"
+        # 👉 только перевод для озвучки
+        clean_text = extract_translation(translated_full)
 
-        translated = translate_strict(text, direction)
-
-        audio_path = text_to_speech(translated)
+        audio_path = text_to_speech(clean_text)
 
         await update.message.reply_voice(
             voice=open(audio_path, "rb"),
-            caption=f"📝 {text}\n\n🌍 {translated}"
+            caption=translated_full
         )
 
     except Exception as e:
