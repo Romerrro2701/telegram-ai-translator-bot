@@ -152,7 +152,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ===== TEXT =====
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
@@ -186,7 +185,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp = await update.message.reply_text("Перевожу...")
 
     try:
-        # 🔥 ВАЖНО — не блокируем поток
         result = await asyncio.to_thread(smart_translate, text)
 
         if not result or len(result.strip()) < 5:
@@ -196,10 +194,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await temp.edit_text(result)
 
+        # ✅ возвращаем кнопки
+        await update.message.reply_text("Готово 👌", reply_markup=get_keyboard())
+
     except Exception as e:
         print("OPENAI ERROR:", e)
 
-       await temp.edit_text("❌ Ошибка перевода\nПопробуй ещё раз")
+        await temp.edit_text("❌ Ошибка перевода\nПопробуй ещё раз")
+        await update.message.reply_text("Попробуй снова", reply_markup=get_keyboard())
+
 
 # ===== VOICE =====
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -213,22 +216,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = tmp.name
 
     try:
-        # распознавание
         text = await asyncio.to_thread(speech_to_text, file_path)
 
         if not text or len(text.strip()) < 2:
             raise Exception("STT empty")
 
-        # перевод
         translated_full = await asyncio.to_thread(smart_translate, text)
 
         if not translated_full or len(translated_full.strip()) < 5:
             raise Exception("Translation empty")
 
-        # чистый текст для озвучки
         clean_text = extract_translation(translated_full)
 
-        # озвучка
         audio_path = await asyncio.to_thread(text_to_speech, clean_text)
 
         await update.message.reply_voice(
@@ -236,6 +235,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=translated_full,
             reply_markup=get_keyboard()
         )
+
+        # ✅ удаляем файлы
+        os.remove(file_path)
+        os.remove(audio_path)
 
     except Exception as e:
         print("VOICE ERROR:", e)
