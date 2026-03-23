@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import json
 import time
 import tempfile
+import asyncio
 from openai import OpenAI
 
 
@@ -191,13 +192,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp = await update.message.reply_text("Перевожу...")
 
     try:
-        result = smart_translate(text)
+        result = await asyncio.to_thread(smart_translate, text)
         add_to_history(user_id, text)
+
+        await temp.edit_text(result, reply_markup=get_keyboard())
+
     except Exception as e:
         print("OPENAI ERROR:", e)
-        result = "Ошибка при обращении к AI 😕"
-
-    await temp.edit_text(result, reply_markup=get_keyboard())
+        await temp.edit_text("❌ Ошибка перевода", reply_markup=get_keyboard())
 
 
 # ===== VOICE =====
@@ -212,12 +214,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = tmp.name
 
     try:
-        text = speech_to_text(file_path)
+        text = await asyncio.to_thread(speech_to_text, file_path)
 
-        translated_full = smart_translate(text)
+        translated_full = await asyncio.to_thread(smart_translate, text)
         clean_text = extract_translation(translated_full)
 
-        audio_path = text_to_speech(clean_text)
+        audio_path = await asyncio.to_thread(text_to_speech, clean_text)
 
         await update.message.reply_voice(
             voice=open(audio_path, "rb"),
