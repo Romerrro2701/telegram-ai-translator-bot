@@ -194,7 +194,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         add_to_history(user_id, text)
 
-        await temp.edit_text(result, reply_markup=get_keyboard())
+        await temp.edit_text(result)
 
     except Exception as e:
         print("OPENAI ERROR:", e)
